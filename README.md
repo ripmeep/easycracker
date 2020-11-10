@@ -43,6 +43,7 @@ print(sha512hash.hex_value)
 # dictionary attack example
 
 This is an easy way to perform a dictionary attack with the module using a hash, and a wordlist
+Supports: MD5, SHA1, SHA224, SHA256, SHA384, SHA512   (Linux Crypt hash coming soon)
 
 ```python
 import easycracker
@@ -58,3 +59,7 @@ if d.cracked:
 else:
   print("Could not find the hash")
 ```
+
+# online API crack
+
+Coming soon
