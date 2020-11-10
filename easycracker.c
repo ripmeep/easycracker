@@ -1467,7 +1467,7 @@ static int DictionaryAttack_init(DictionaryAttackObject * self, PyObject * args,
 	const char * __c_wordlist_path = PyBytes_AsString(wordlist_path_str);
 
 	if (access(__c_wordlist_path, F_OK) != 0) {
-		PyErr_Format(PyExc_Exception, "Cannot open file (%s).", __c_wordlist_path);
+		PyErr_Format(PyExc_FileNotFoundError, "Cannot open file (%s).", __c_wordlist_path);
 
 		return -1;
 	}
@@ -1520,7 +1520,6 @@ int __c_DictionaryAttack(const char __hash_value[], const char * hash_type, cons
 	unsigned char digest[SHA512_BLOCK_SIZE + 1];
 	char hexdigest[(SHA512_BLOCK_SIZE * 2) + 1]; // SHA512 is the largest block size. safe for all hashes
 
-	while (fgets(word, sizeof(word), wordlist_file) != NULL) {
 		memset(digest, '\0', sizeof(digest));
 		memset(hexdigest, '\0', sizeof(hexdigest));
 
@@ -1649,7 +1648,7 @@ static PyObject * DictionaryAttack_start(DictionaryAttackObject * self, PyObject
 	if (status && self->cracked)
 		return Py_True;
 	else if (status < 0) {
-		PyErr_SetString(PyExc_Exception, error_buf);
+		PyErr_SetString(PyExc_RuntimeError, error_buf);
 
 		return NULL;
 	}
