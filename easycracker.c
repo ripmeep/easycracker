@@ -1520,6 +1520,7 @@ int __c_DictionaryAttack(const char __hash_value[], const char * hash_type, cons
 	unsigned char digest[SHA512_BLOCK_SIZE + 1];
 	char hexdigest[(SHA512_BLOCK_SIZE * 2) + 1]; // SHA512 is the largest block size. safe for all hashes
 
+	while (fgets(word, sizeof(word), wordlist_file) != NULL) {
 		memset(digest, '\0', sizeof(digest));
 		memset(hexdigest, '\0', sizeof(hexdigest));
 
