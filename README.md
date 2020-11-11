@@ -61,7 +61,7 @@ else:
   print("Could not find the hash")
 ```
 
-# online API crack
+# online crack
 
 This is a way to search for a hash's plaintext online using this module. Only a valid hash is required (MD5, SHA1, SHA256, SHA384, SHA512)
 
