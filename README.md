@@ -7,7 +7,7 @@ A simple to use python3 module for hashes and attacking hashes
     $ cd easycracker/
     
     $ sudo chmod +x install.sh
-    $ sh install.sh
+    $ ./install.sh
     
     $ echo "Finished :)"
     
