@@ -14,9 +14,9 @@ hashes = [
 for hash in hashes:
 	l = easycracker.OnlineLookup(hash)
 
-	l.search()
-
 	print("\nSearching hash ({})".format(hash))
+	
+	l.search()
 
 	if l.cracked == True:
 		print("Found the hash!")
