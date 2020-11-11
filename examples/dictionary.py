@@ -20,7 +20,7 @@ for hash in hashes:
 
 	print("\nAttacking hash ({})".format(hash))
 
-	d.start()
+	d.start() # an FileNotFound error will occur if the wordlist cant be read or doesn't exist
 
 	if d.cracked == True:
 		print("Found the hash!")
