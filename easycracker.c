@@ -16,6 +16,8 @@
 
 #include <openssl/sha.h>
 
+#include <curl/curl.h>
+
 #include "Python.h"
 #include "structmember.h"
 
@@ -1690,6 +1692,348 @@ static PyTypeObject DictionaryAttackType = {
 };
 
 
+/* CPython OnlineLookup Module */
+
+#define BASE_HASH_API_URL "https://md5decrypt.net/Api/api.php"
+
+typedef struct {
+	PyObject_HEAD
+
+	PyObject * hash;
+	PyObject * hash_type;
+	PyObject * plaintext;
+
+	int cracked;
+} OnlineLookupObject;
+
+struct easy_request_body {
+    char * text;
+    size_t len;
+};
+
+struct easy_request_headers {
+    char ** values;
+    size_t len;
+    //size_t last_value_len;
+};
+
+struct easy_request_status {
+    long code;
+    int is_success;
+};
+
+typedef struct __EasyRequest {
+    struct easy_request_status status;
+    struct easy_request_body body;
+    struct easy_request_headers headers;
+
+	int run_status;
+	char error_buf[512];
+} EasyRequest;
+
+
+int easy_request_init(EasyRequest * ezreq) {
+    ezreq->status.code = 0;
+    ezreq->status.is_success = 0;
+
+    ezreq->headers.len = 0;
+    //ezreq->headers.last_value_len = 0;
+    ezreq->headers.values = malloc(ezreq->headers.len + 1);
+
+    ezreq->body.len = 0;
+    ezreq->body.text = malloc(ezreq->body.len + 1);
+
+    if (ezreq->body.text == NULL || ezreq->headers.values == NULL) {
+		return -1;
+    }
+
+    ezreq->body.text[0] = '\0';
+
+	return 1;
+}
+
+void easy_request_cleanup(EasyRequest * ezreq) {
+    if (ezreq->headers.values != NULL)
+        free(ezreq->headers.values);
+
+    if (ezreq->body.text != NULL)
+        free(ezreq->body.text);
+}
+
+size_t __easy_request_write_body(void * ptr, size_t size, size_t nmemb, struct easy_request_body * body) {
+	size_t new_len = body->len + size * nmemb;
+	body->text = realloc(body->text, new_len + 1);
+
+	if (body->text == NULL) {
+		PyErr_SetString(PyExc_RuntimeError, "Memory corruption... Aborting");
+
+		exit(-1);
+	}
+
+    memcpy(body->text + body->len, ptr, size * nmemb);
+    body->text[new_len] = '\0';
+    body->len = new_len;
+
+    return size * nmemb;
+}
+
+size_t __easy_request_write_headers(void * ptr, size_t size, size_t nmemb, struct easy_request_headers * headers) {
+    size_t calc_len = strlen(ptr);
+    headers->values = (char**)realloc(headers->values, (headers->len + 1) * sizeof(*headers->values));
+    headers->values[headers->len] = malloc(calc_len + 1);
+
+    if (headers->values[headers->len] == NULL) {
+		PyErr_SetString(PyExc_RuntimeError, "Memory corruption... Aborting");
+
+		exit(-1);
+    }
+
+    memcpy(headers->values[headers->len], ptr, calc_len);
+    headers->values[headers->len++][calc_len] = '\0';
+    //headers->last_value_len = calc_len;
+
+    return size * nmemb;
+}
+
+EasyRequest easy_get(const char url[]) {
+    CURL * curl;
+    CURLcode res;
+
+	struct curl_slist * list = NULL;
+	int init_status;
+
+	EasyRequest request;
+
+    init_status = easy_request_init(&request);
+
+	if (init_status < 0) {
+		snprintf(request.error_buf, sizeof(request.error_buf), "Failed to initialize request (%s)", strerror(errno));
+
+		request.run_status = -1;
+
+		return request;
+	}
+
+    curl = curl_easy_init();
+
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, __easy_request_write_body);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &request.body);
+        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, __easy_request_write_headers);
+        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &request.headers);
+
+		list = curl_slist_append(list, "user-agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0");
+
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+
+		res = curl_easy_perform(curl);
+
+		if (res != CURLE_OK) {
+			snprintf(request.error_buf, sizeof(request.error_buf), "Failed to lookup hash (%s)", curl_easy_strerror(res));
+
+			request.run_status = -1;
+
+			return request;
+		}
+
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &request.status.code);
+        curl_easy_cleanup(curl);
+		curl_slist_free_all(list);
+
+        if (request.status.code >= 200 && request.status.code < 300) {
+                request.status.is_success = 1;
+        }
+
+		request.run_status = 1;
+    } else {
+		request.run_status = -1;
+
+		snprintf(request.error_buf, sizeof(request.error_buf), "Failed to initialize request");
+	}
+
+    return request;
+}
+
+static void OnlineLookup_dealloc(OnlineLookupObject * self) {
+	Py_XDECREF(self->hash);
+	Py_XDECREF(self->hash_type);
+	Py_XDECREF(self->plaintext);
+
+	self->cracked = 0;
+
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject * OnlineLookup_new(PyTypeObject * type, PyObject * args, PyObject * kwds) {
+	OnlineLookupObject * self;
+
+	self = (OnlineLookupObject *)type->tp_alloc(type, 0);
+
+	if (self != NULL) {
+		self->hash = PyUnicode_FromString("");
+		self->hash_type = PyUnicode_FromString("");
+		self->plaintext = PyUnicode_FromString("");
+
+		if (self->hash == NULL) {
+			Py_DECREF(self);
+
+			return NULL;
+		}
+
+		if (self->hash_type == NULL) {
+			Py_DECREF(self);
+
+			return NULL;
+		}
+
+		if (self->plaintext == NULL) {
+			Py_DECREF(self);
+
+			return NULL;
+		}
+
+		self->cracked = 0;
+	}
+
+	return (PyObject *)self;
+}
+
+static int OnlineLookup_init(OnlineLookupObject * self, PyObject * args, PyObject * kwds) {
+	PyObject * hash;
+	PyObject * copy;
+
+	if (!PyArg_ParseTuple(args, "O", &hash)) {
+		PyErr_SetString(PyExc_Exception, "Failed to create Online Lookup. Takes 2 arguments (hash, hash type)");
+
+		return -1;
+	}
+
+	if (hash) {
+		copy = self->hash;
+		Py_INCREF(hash);
+		self->hash = hash;
+		Py_XDECREF(copy);
+	}
+
+	return 0;
+}
+
+static PyObject * OnlineLookup_search(OnlineLookupObject * self, PyObject * Py_UNUSED(ignored)) {
+	if (self->hash == NULL) {
+		PyErr_SetString(PyExc_AttributeError, "hash not set (must be hex encoded)");
+
+		return NULL;
+	}
+
+	PyObject * hash_repr = PyObject_Str(self->hash);
+	PyObject * hash_str = PyUnicode_AsEncodedString(hash_repr, "ascii", "~E~");
+	const char * __c_hash = PyBytes_AsString(hash_str);
+
+	char error_buf[512];
+	char * __c_hash_type;
+	char full_url[256 + strlen(BASE_HASH_API_URL) + strlen(__c_hash)];
+
+	size_t hash_length = strlen(__c_hash);
+
+	if (hash_length == 32)
+		__c_hash_type = "md5";
+	else if (hash_length == 40)
+		__c_hash_type = "sha1";
+	else if (hash_length == 64)
+		__c_hash_type = "sha256";
+	else if (hash_length == 96)
+		__c_hash_type = "sha384";
+	else if (hash_length == 128)
+		__c_hash_type = "sha512";
+	else {
+		PyErr_Format(PyExc_ValueError, "That hash does not match a supported algorithm (Hash length: %d)", hash_length);
+
+		return NULL;
+	}
+
+	self->hash_type = PyUnicode_FromString(__c_hash_type);
+
+	memcpy(full_url, BASE_HASH_API_URL, strlen(BASE_HASH_API_URL));
+	full_url[strlen(BASE_HASH_API_URL)] = '\0';
+
+	snprintf(full_url + strlen(full_url), sizeof(full_url) - strlen(full_url), "?hash=%s&hash_type=%s&email=deanna_abshire@proxymail.eu&code=1152464b80a61728", __c_hash, __c_hash_type);
+
+	self->cracked = 0;
+
+//GET
+
+	EasyRequest request = easy_get(full_url);
+
+	if (request.run_status < 0) {
+		PyErr_SetString(PyExc_RuntimeError, error_buf);
+
+		easy_request_cleanup(&request);
+
+		return NULL;
+	} else if (request.run_status > 0 && request.status.code >= 200 && request.status.code < 300) {
+		if (strstr("CODE ERREUR : ", request.body.text) != NULL) {
+			easy_request_cleanup(&request);
+			self->cracked = 0;
+
+			return Py_False;
+		}
+
+		char * plaintext = strdup(request.body.text);
+
+		if (request.body.text[request.body.len - 1] == '\n') {
+			plaintext[request.body.len - 1] = '\0';
+		}
+
+		self->plaintext = PyUnicode_FromString(plaintext);
+		self->cracked = 1;
+
+		easy_request_cleanup(&request);
+
+		return Py_True;
+	} else {
+		easy_request_cleanup(&request);
+		self->cracked = 0;
+
+		return Py_False;
+	}
+
+	easy_request_cleanup(&request);
+	self->cracked = 0;
+
+	return Py_False;
+}
+
+static PyMemberDef OnlineLookup_members[] = {
+	{"hash", T_OBJECT_EX, offsetof(OnlineLookupObject, hash), 0, "Hash value to lookup (Must be hex encoded)"},
+	{"hash_type", T_OBJECT_EX, offsetof(OnlineLookupObject, hash_type), 0, "Type of hash that was looked up"},
+	{"plaintext", T_OBJECT_EX, offsetof(OnlineLookupObject, plaintext), 0, "The plaintext of the hash (will not be empty if the hash was successfully found)"},
+	{"cracked", T_INT, offsetof(OnlineLookupObject, cracked), 0, "Integer value representing if the hash was successfully found or not"},
+
+	{NULL}
+};
+
+static PyMethodDef OnlineLookup_methods[] = {
+	{"search", (PyCFunction)OnlineLookup_search, METH_NOARGS, "Begin the search for the hash"},
+
+	{NULL}
+};
+
+static PyTypeObject OnlineLookupType = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "easycracker.OnlineLookup",
+	.tp_doc = "OnlineLookup object to search online for the hash",
+	.tp_basicsize = sizeof(OnlineLookupObject),
+	.tp_itemsize = 0,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+	.tp_new = OnlineLookup_new,
+	.tp_init = (initproc)OnlineLookup_init,
+	.tp_dealloc = (destructor)OnlineLookup_dealloc,
+	.tp_members = OnlineLookup_members,
+	.tp_methods = OnlineLookup_methods,
+};
+
+
 /* Module Setup */
 
 static PyModuleDef easycrackermodule = {
@@ -1734,6 +2078,10 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 		return NULL;
 	}
 
+	if (PyType_Ready(&OnlineLookupType) < 0) {
+		return NULL;
+	}
+
 	m = PyModule_Create(&easycrackermodule);
 
 	if (m == NULL) {
@@ -1748,6 +2096,7 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 	Py_INCREF(&SHA384HashType);
 	Py_INCREF(&SHA512HashType);
 	Py_INCREF(&DictionaryAttackType);
+	Py_INCREF(&OnlineLookupType);
 
 	if (PyModule_AddObject(m, "MD4Hash", (PyObject *)&MD4HashType) < 0){
 		Py_DECREF(&MD4HashType);
@@ -1800,6 +2149,13 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 
 	if (PyModule_AddObject(m, "DictionaryAttack", (PyObject *)&DictionaryAttackType) < 0) {
 		Py_DECREF(&DictionaryAttackType);
+		Py_DECREF(m);
+
+		return NULL;
+	}
+
+	if (PyModule_AddObject(m, "OnlineLookup", (PyObject *)&OnlineLookupType) < 0) {
+		Py_DECREF(&OnlineLookupType);
 		Py_DECREF(m);
 
 		return NULL;
