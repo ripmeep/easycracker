@@ -6,11 +6,8 @@ A simple to use python3 module for hashes and attacking hashes
     $ git clone https://github.com/ripmeep/easycracker
     $ cd easycracker/
     
-    $ apt-get install libssl-dev
-    $ apt-get install libcurl4-openssl-dev
-
-    $ python3 setup.py build
-    $ python3 setup.py install
+    $ sudo chmod +x install.sh
+    $ sh install.sh
     
     $ echo "Finished :)"
     
