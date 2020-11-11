@@ -9,4 +9,6 @@ sudo apt-get install libssl-dev libcurl4-openssl-dev
 sudo python3 setup.py build
 sudo python3 setup.py install
 
+chmod +x -R examples/
+
 echo -e "\n\n~ Done & Dusted! ~\n"
