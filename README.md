@@ -49,7 +49,7 @@ Supports: MD5, SHA1, SHA224, SHA256, SHA384, SHA512   (Linux Crypt hash coming s
 ```python
 import easycracker
 
-d = easycracker.DictionaryAttack("5d41402abc4b2a76b9719d911017c592", "rockyou.txt")
+d = easycracker.DictionaryAttack("5d41402abc4b2a76b9719d911017c592", "top-passwords.lst")
 d.start()
 
 if d.cracked:
