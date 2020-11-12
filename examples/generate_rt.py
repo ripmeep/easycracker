@@ -20,13 +20,7 @@ db = sqlite3.connect("hashes.db")
 cur = db.cursor()
 
 for i in tqdm(range(len(lines))):
-	plaintext = lines[i].strip()
-
-	try:
-		plaintext = plaintext.decode("ascii")
-	except:
-		continue
-		
+	plaintext = lines[i].strip()	
 	plaintext = plaintext.replace("'", "''") # It is SQL standard to replace all single quotes with double single quotes
 	
 	sys.stdout.write("\r[%s] Generaring Hash Tables "%(random.choice(["|", "/", "-", "\\"])))
