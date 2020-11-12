@@ -9,7 +9,7 @@ sudo apt-get install libssl-dev libcurl4-openssl-dev libsqlite3-dev
 sudo python3 setup.py build
 sudo python3 setup.py install
 
-python3 -m pip install sqlite3 tqdm
+python3 -m pip install pysqlite3 tqdm
 
 chmod +x -R examples/
 
