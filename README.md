@@ -83,7 +83,7 @@ else:
     print("Could not find hash\n".format(hash))
 ```
 
-# rainbow table attack
+# rainbow table attack (still in works: generation is buggy)
 
 Please check `examples/generate_rt.py` to find out how to generate your own rainbow table database for this module. The dbms is `sqlite3` and the database and table structure MUST look like this:
 
