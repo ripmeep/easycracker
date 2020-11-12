@@ -18,6 +18,8 @@
 
 #include <curl/curl.h>
 
+#include <sqlite3.h>
+
 #include "Python.h"
 #include "structmember.h"
 
@@ -2034,6 +2036,432 @@ static PyTypeObject OnlineLookupType = {
 };
 
 
+/* Rainbow Table/Database CPython Module */
+
+typedef struct {
+	/*const unsigned*/ char * plaintext;
+	/*const unsigned*/ char * hash;
+	/*const unsigned*/ char * algorithm;
+} RainbowTableResult; /* DB -> [TABLE NAME] -> (plaintext, hash, algorithm) */
+
+typedef struct {
+	PyObject_HEAD
+
+	sqlite3 * db;
+	sqlite3_stmt * stmt;
+
+	PyObject * database_path;
+//	PyObject * table_name;
+
+	long __safe_results; // For database checks in case of user error
+	long results;
+
+//	char * error_buf;
+
+	int __safe_verified;
+	int __safe_status;
+
+	int read;
+	int write;
+
+	RainbowTableResult result;
+} RainbowDatabaseObject;
+
+static void RainbowDatabase_dealloc(RainbowDatabaseObject * self) {
+	Py_XDECREF(self->database_path);
+
+	memset(&self->result, 0, sizeof(RainbowTableResult));
+
+	self->__safe_verified = 0;
+	self->__safe_results = 0;
+	self->__safe_status = 0;
+	self->results = 0;
+//	self->error_buf = NULL;
+	self->read = 0;
+	self->write = 0;
+}
+
+static PyObject * RainbowDatabase_new(PyTypeObject * type, PyObject * args, PyObject * kwds) {
+	RainbowDatabaseObject * self;
+
+	self = (RainbowDatabaseObject *)type->tp_alloc(type, 0);
+
+	if (self != NULL) {
+		self->database_path = PyUnicode_FromString("");
+
+		if (self->database_path == NULL) {
+			Py_DECREF(self);
+
+			return NULL;
+		}
+	}
+
+	self->__safe_results = 0;
+	self->results = self->__safe_results;
+	self->__safe_status = 0;
+
+	self->read = 1;
+	self->write = 1;
+
+	return (PyObject*)self;
+}
+
+static int RainbowDatabase_init(RainbowDatabaseObject * self, PyObject * args, PyObject * kwds) {
+	return 1;
+}
+
+static PyObject * RainbowDatabase_load(RainbowDatabaseObject * self, PyObject * args) {
+	PyObject * database_path = NULL;
+	PyObject * copy;
+
+	if (!PyArg_ParseTuple(args, "O", &database_path)) {
+		return Py_False;
+	}
+
+	if (database_path) {
+		copy = self->database_path;
+		Py_INCREF(database_path);
+		self->database_path = database_path;
+		Py_XDECREF(copy);
+	}
+
+	PyObject * dbpath_repr = PyObject_Str(self->database_path);
+	PyObject * dbpath_str = PyUnicode_AsEncodedString(dbpath_repr, "ascii", "~E~");
+	const char * dbpath = PyBytes_AsString(dbpath_str);
+
+
+	self->__safe_status = sqlite3_open(dbpath, &self->db);
+
+	if (self->db == NULL) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to open database (%s): %s", dbpath, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	if (self->__safe_status != SQLITE_OK) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to open database (%s): %s", dbpath, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	char check_query[] = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hashes'";
+
+	sqlite3_prepare_v2(self->db, check_query, -1, &self->stmt, NULL);
+
+	int verified = 0;
+
+	while (sqlite3_step(self->stmt) != SQLITE_DONE) {
+		verified = sqlite3_column_count(self->stmt);
+	}
+
+	if (verified == 0) {
+		PyErr_Format(PyExc_RuntimeError, "The database is not in the correct structure for this module. Table name must be named \"hashes\" with 3 varchar(255) columns (plaintext, hash, algorithm)");
+
+		return NULL;
+	}
+
+	self->__safe_verified = 1;
+	self->read = 1;
+	self->write = 0;
+
+	return Py_True;
+}
+
+static PyObject * RainbowDatabase_search(RainbowDatabaseObject * self, PyObject * args) {
+//	if (self->__safe_verified <= 0) {
+//		PyErr_SetString(PyExc_Exception, "The database has not been successfully verified for usage");
+//
+//		return NULL;
+//	}
+
+	PyObject * search_pattern = NULL;
+
+	if (!PyArg_ParseTuple(args, "O", &search_pattern)) {
+		PyErr_SetString(PyExc_ValueError, "Invlalid search pattern");
+
+		return NULL;
+	}
+
+	PyObject * search_pattern_repr = PyObject_Str(search_pattern);
+	PyObject * search_pattern_str = PyUnicode_AsEncodedString(search_pattern_repr, "ascii", "~E~");
+	const char * search = PyBytes_AsString(search_pattern_str);
+
+	long entries = 0;
+//	int abort = 0;
+	char query[strlen(search) + 256];
+
+	snprintf(query, sizeof(query), "SELECT * FROM hashes WHERE hash LIKE %c%%%s%%%c", '"', search, '"');
+
+	self->__safe_status = sqlite3_prepare_v2(self->db, query, -1, &self->stmt, NULL);
+
+	if (self->__safe_status != SQLITE_OK) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to search rainbow table: %s", sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	while (sqlite3_step(self->stmt) != SQLITE_DONE) {
+		int num_cols = sqlite3_column_count(self->stmt);
+
+		if (num_cols == 0) {
+			self->__safe_results = 0;
+			self->results = 0;
+
+			return PyLong_FromLong(self->results);
+		}
+
+		for (int i = 0; i < num_cols; ++i) {
+			if (sqlite3_column_type(self->stmt, i) != SQLITE_TEXT) {
+				PyErr_SetString(PyExc_RuntimeError, "Rainbow table columns not in correct format (plaintext, hash, algorithm) must be all strings");
+
+				return NULL;
+			}
+		}
+
+		entries++;
+	}
+
+	self->results = entries;
+	self->__safe_results = entries;
+
+	self->__safe_verified = 1;
+
+	return PyLong_FromLong(self->results);
+}
+
+static PyObject * RainbowDatabase_get_result(RainbowDatabaseObject * self, PyObject * args) {
+	long entry;
+
+	if (!PyArg_ParseTuple(args, "l", &entry)) {
+		PyErr_SetString(PyExc_Exception, "Invalid argument type. Must be integer");
+
+		return NULL;
+	}
+
+	if (entry > self->__safe_results) {
+		PyErr_Format(PyExc_ValueError, "Invalid result number (%ld). Maximum number of results is %ld", entry, self->__safe_results);
+
+		return NULL;
+	}
+
+	int n = 0;
+	int found = 0;
+
+	self->result.plaintext = "";
+	self->result.hash = "";
+	self->result.algorithm = "";
+
+	unsigned char * plaintext;
+	unsigned char * hash;
+	unsigned char * algorithm;
+
+	size_t size;
+
+	while (sqlite3_step(self->stmt) != SQLITE_DONE) {
+		if (n == entry) {
+			int num_cols = sqlite3_column_count(self->stmt);
+
+			if (num_cols == 3)
+				found = 1;
+
+			for (int i = 0; i < num_cols; ++i) {
+				switch (i) {
+					case 0:
+						plaintext = (unsigned char*)sqlite3_column_text(self->stmt, i);
+						size = strlen((const char *)plaintext) + 1;
+						self->result.plaintext = (char*)malloc(sizeof(char) * size);
+						snprintf(self->result.plaintext, size, "%s", plaintext);
+						continue;
+					case 1:
+						hash = (unsigned char*)sqlite3_column_text(self->stmt, i);
+						size = strlen((const char*)hash) + 1;
+						self->result.hash = (char*)malloc(sizeof(char) * size);
+						snprintf(self->result.hash, size, "%s", hash);
+						continue;
+					case 2:
+						algorithm = (unsigned char*)sqlite3_column_text(self->stmt, i);
+						size = strlen((const char *)algorithm) + 1;
+						self->result.algorithm = (char*)malloc(sizeof(char) * size);
+						snprintf(self->result.algorithm, size, "%s", algorithm);
+					default:
+						continue;
+				}
+			}
+		}
+
+		n++;
+	}
+
+	if (found != 1) {
+		PyErr_Format(PyExc_Exception, "Could not find info for entry %ld", entry);
+
+		return NULL;
+	}
+
+	PyObject * hash_dict = PyDict_New();
+
+	PyObject * plaintext_key = PyUnicode_FromString("plaintext");
+	PyObject * plaintext_item = PyUnicode_FromString(self->result.plaintext);
+
+	PyObject * hash_key = PyUnicode_FromString("hash");
+	PyObject * hash_item = PyUnicode_FromString(self->result.hash);
+
+	PyObject * algorithm_key = PyUnicode_FromString("algorithm");
+	PyObject * algorithm_item = PyUnicode_FromString(self->result.algorithm);
+
+	PyDict_SetItem(hash_dict, plaintext_key, plaintext_item);
+	PyDict_SetItem(hash_dict, hash_key, hash_item);
+	PyDict_SetItem(hash_dict, algorithm_key, algorithm_item);
+
+	self->result.plaintext = NULL;
+	self->result.hash = NULL;
+	self->result.algorithm = NULL;
+
+	return hash_dict;
+}
+
+
+static PyObject * RainbowDatabase_create(RainbowDatabaseObject * self, PyObject * args) {
+	if (self->write == 0) {
+		PyObject * dbpath_repr = PyObject_Str(self->database_path);
+		PyObject * dbpath_str = PyUnicode_AsEncodedString(dbpath_repr, "ascii", "~E~");
+		const char * dbpath = PyBytes_AsString(dbpath_str);
+
+		PyErr_Format(PyExc_Exception, "You already have a database open on this object (%s). You cannot overwrite this", dbpath);
+
+		return NULL;
+	}
+
+	PyObject * db_name = NULL;
+
+	if (!PyArg_ParseTuple(args, "O", &db_name)) {
+		PyErr_SetString(PyExc_Exception, "Invalid argument. Must be a string parameter");
+
+		return NULL;
+	}
+
+	PyObject * db_name_repr = PyObject_Str(db_name);
+	PyObject * db_name_str = PyUnicode_AsEncodedString(db_name_repr, "ascii", "~E~");
+	char * db_path = PyBytes_AsString(db_name_str);
+
+	if (access(db_path, F_OK) == 0) {
+		PyErr_Format(PyExc_Exception, "There is already a valid file at %s. Cannot overwrite", db_path);
+
+		return NULL;
+	}
+
+	FILE * db_file = fopen(db_path, "wb");
+
+	if (db_file == NULL) {
+		PyErr_Format(PyExc_Exception, "Error creating new database: %s", strerror(errno));
+
+		return NULL;
+	}
+
+	self->__safe_status = sqlite3_open(db_path, &self->db);
+
+	if (self->db == NULL) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to open database (%s): %s", db_path, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	if (self->__safe_status != SQLITE_OK) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to open database (%s): %s", db_path, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	char init_query[] = "CREATE TABLE hashes(plaintext varchar(255), hash varchar(255), algorithm varchar(255))";
+	char check_query[] = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hashes'";
+
+	self->__safe_status = sqlite3_exec(self->db, init_query, 0, 0, NULL);
+
+	if (self->__safe_status != SQLITE_OK) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to create new rainbow database (%s): %s", db_path, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	self->__safe_status = sqlite3_prepare_v2(self->db, check_query, -1, &self->stmt, NULL);
+
+	if (self->__safe_status != SQLITE_OK) {
+		PyErr_Format(PyExc_RuntimeError, "Failed to create new rainbow database (%s): %s", db_path, sqlite3_errmsg(self->db));
+
+		return NULL;
+	}
+
+	int verified = 0;
+
+	while (sqlite3_step(self->stmt) != SQLITE_DONE) {
+		verified = sqlite3_column_count(self->stmt);
+	}
+
+	if (verified == 0) {
+		PyErr_Format(PyExc_RuntimeError, "The database is not in the correct structure for this module. Table name must be named \"hashes\" with 3 varchar(255) columns (plaintext, hash, algorithm)");
+
+		return NULL;
+	}
+
+	self->__safe_verified = 1;
+
+	self->read = 1;
+	self->write = 1;
+
+	sqlite3_close(self->db);
+
+	return Py_True;
+//	return (PyObject *)self;
+}
+
+static PyObject * RainbowDatabase_craft_entry(RainbowDatabaseObject * self, PyObject * args) {
+	char * plaintext;
+	char * hash;
+	char * algorithm;
+
+	if (!PyArg_ParseTuple(args, "sss", &plaintext, &hash, &algorithm)) {
+		return NULL;
+	}
+
+	char entry[256 + strlen(hash) + strlen(algorithm) + strlen(plaintext)];
+
+	snprintf(entry, sizeof(entry), "INSERT INTO hashes VALUES('%s', '%s', '%s')", plaintext, hash, algorithm);
+
+	return PyUnicode_FromString(entry);
+}
+
+static PyMemberDef RainbowDatabase_members[] = {
+	{"database_path", T_OBJECT_EX, offsetof(RainbowDatabaseObject, database_path), 0, "Path of the database to use"},
+	{"results", T_INT, offsetof(RainbowDatabaseObject, results), 0, "Amount of results/entries found in the Rainbow Table"},
+
+	{NULL}
+};
+
+static PyMethodDef RainbowDatabase_methods[] = {
+	{"load", (PyCFunction)RainbowDatabase_load, METH_VARARGS, "Load a Rainbow database for reading"},
+	{"create", (PyCFunction)RainbowDatabase_create, METH_VARARGS, "Create a new Rainbow database and return the object type"},
+	{"craft_entry", (PyCFunction)RainbowDatabase_craft_entry, METH_VARARGS, "Craft a database entry for the rainbow table using arguments"},
+	{"search", (PyCFunction)RainbowDatabase_search, METH_VARARGS, "Search the Rainbow Database for the hash pattern"},
+	{"get_result", (PyCFunction)RainbowDatabase_get_result, METH_VARARGS, "Retrieve Rainbow Table entry by index"},
+
+	{NULL}
+};
+
+static PyTypeObject RainbowDatabaseType = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "easycracker.RainbowDatabase",
+	.tp_doc = "A Rainbow Database/Table attack module",
+	.tp_basicsize = sizeof(RainbowDatabaseObject),
+	.tp_itemsize = 0,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+	.tp_new = RainbowDatabase_new,
+	.tp_init = (initproc)RainbowDatabase_init,
+	.tp_dealloc = (destructor)RainbowDatabase_dealloc,
+	.tp_members = RainbowDatabase_members,
+	.tp_methods = RainbowDatabase_methods,
+};
+
+
 /* Module Setup */
 
 static PyModuleDef easycrackermodule = {
@@ -2082,6 +2510,10 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 		return NULL;
 	}
 
+	if (PyType_Ready(&RainbowDatabaseType) < 0) {
+		return NULL;
+	}
+
 	m = PyModule_Create(&easycrackermodule);
 
 	if (m == NULL) {
@@ -2097,6 +2529,7 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 	Py_INCREF(&SHA512HashType);
 	Py_INCREF(&DictionaryAttackType);
 	Py_INCREF(&OnlineLookupType);
+	Py_INCREF(&RainbowDatabaseType);
 
 	if (PyModule_AddObject(m, "MD4Hash", (PyObject *)&MD4HashType) < 0){
 		Py_DECREF(&MD4HashType);
@@ -2155,6 +2588,13 @@ PyMODINIT_FUNC PyInit_easycracker(void) {
 	}
 
 	if (PyModule_AddObject(m, "OnlineLookup", (PyObject *)&OnlineLookupType) < 0) {
+		Py_DECREF(&OnlineLookupType);
+		Py_DECREF(m);
+
+		return NULL;
+	}
+
+	if (PyModule_AddObject(m, "RainbowDatabase", (PyObject *)&RainbowDatabaseType) < 0) {
 		Py_DECREF(&OnlineLookupType);
 		Py_DECREF(m);
 
