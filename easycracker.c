@@ -2415,13 +2415,29 @@ static PyObject * RainbowDatabase_create(RainbowDatabaseObject * self, PyObject 
 }
 
 static PyObject * RainbowDatabase_craft_entry(RainbowDatabaseObject * self, PyObject * args) {
+	PyObject * p, * h, * a;
+
+
+	if (!PyArg_ParseTuple(args, "OOO", &p, &h, &a)) {
+		return NULL;
+	}
+
 	char * plaintext;
 	char * hash;
 	char * algorithm;
 
-	if (!PyArg_ParseTuple(args, "sss", &plaintext, &hash, &algorithm)) {
-		return NULL;
-	}
+	PyObject * p_repr = PyObject_Str(p);
+	PyObject * p_str = PyUnicode_AsEncodedString(p_repr, "ascii", "~E~");
+	plaintext = PyBytes_AsString(p_str);
+
+	PyObject * h_repr = PyObject_Str(h);
+	PyObject * h_str = PyUnicode_AsEncodedString(h_repr, "ascii", "~E~");
+	hash = PyBytes_AsString(h_str);
+
+	PyObject * a_repr = PyObject_Str(a);
+	PyObject * a_str = PyUnicode_AsEncodedString(a_repr, "ascii", "~E~");
+	algorithm = PyBytes_AsString(a_str);
+
 
 	char entry[256 + strlen(hash) + strlen(algorithm) + strlen(plaintext)];
 
