@@ -7,12 +7,12 @@
 import easycracker
 
 hashes = [
-    "5f4dcc3b5aa765d61", # MD5 "password"
+    	"5f4dcc3b5aa765d61", # MD5 "password"
 	"aaf4c61ddcc5e8a2d", # SHA1 "hello"
 	"a2217124a034c5c9a", # SHA224 "goodpassword"
-    "240be518fabd2724d", # SHA256 "admin123" 
-    "548568964fb078e3a", # SHA384 "dragon"
-    "38221f3553236a283", # SHA512 "supersecret"
+    	"240be518fabd2724d", # SHA256 "admin123" 
+    	"548568964fb078e3a", # SHA384 "dragon"
+   	"38221f3553236a283", # SHA512 "supersecret"
 ]
 
 hd = easycracker.HashDatabase()
