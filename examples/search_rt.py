@@ -15,23 +15,22 @@ hashes = [
     "38221f3553236a283", # SHA512 "supersecret"
 ]
 
-rt = easycracker.RainbowDatabase()
-rt.load("hashes.db")
+hd = easycracker.HashDatabase()
+hd.load("hashes.db")
 
 for hash in hashes:
 	print("\nSearching for partial hash ({})".format(hash))
 
-	rt.search(hash)
+	hd.search(hash)
 
-	if rt.results == 0:
+	if hd.results == 0:
 		print("Couldnt find any matches")
 		continue
 
-	for i in range(rt.results):
-		entry = rt.get_result(i)
+	for i in range(hd.results):
+		entry = hd.get_result(i)
 
 		plaintext = entry["plaintext"]
 		algorithm = entry["algorithm"]
 
 		print("Potential match => {}:{}\n".format(plaintext, algorithm))
-
