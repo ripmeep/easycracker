@@ -8,10 +8,10 @@ from tqdm import tqdm
 f = open("top-passwords.lst", "rb")
 lines = f.readlines()
 
-rt = easycracker.RainbowDatabase()
+hd = easycracker.HashDatabase()
 
 try:
-    rt.create("hashes.db")
+	hd.create("hashes.db")
 except Exception as e:
     print(str(e))
     sys.exit()
@@ -39,12 +39,12 @@ for i in tqdm(range(len(lines))):
     sha384hash = easycracker.SHA384Hash(plaintext).digest_dict()["hex"]
     sha512hash = easycracker.SHA512Hash(plaintext).digest_dict()["hex"]
 
-    cur.execute(rt.craft_entry(plaintext, md4hash, "MD4"))
-    cur.execute(rt.craft_entry(plaintext, md5hash, "MD5"))
-    cur.execute(rt.craft_entry(plaintext, sha1hash, "SHA1"))
-    cur.execute(rt.craft_entry(plaintext, sha224hash, "SHA224"))
-    cur.execute(rt.craft_entry(plaintext, sha256hash, "SHA256"))
-    cur.execute(rt.craft_entry(plaintext, sha384hash, "SHA384"))
-    cur.execute(rt.craft_entry(plaintext, sha512hash, "SHA512"))
+    cur.execute(hd.craft_entry(plaintext, md4hash, "MD4"))
+    cur.execute(hd.craft_entry(plaintext, md5hash, "MD5"))
+    cur.execute(hd.craft_entry(plaintext, sha1hash, "SHA1"))
+    cur.execute(hd.craft_entry(plaintext, sha224hash, "SHA224"))
+    cur.execute(hd.craft_entry(plaintext, sha256hash, "SHA256"))
+    cur.execute(hd.craft_entry(plaintext, sha384hash, "SHA384"))
+    cur.execute(hd.craft_entry(plaintext, sha512hash, "SHA512"))
 
 db.commit()
