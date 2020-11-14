@@ -83,9 +83,9 @@ else:
     print("Could not find hash\n".format(hash))
 ```
 
-# rainbow table attack (still in works: generation is buggy)
+# hash database attack (still in works: generation is buggy)
 
-Please check `examples/generate_rt.py` to find out how to generate your own rainbow table database for this module. The dbms is `sqlite3` and the database and table structure MUST look like this:
+Please check `examples/generate_rt.py` to find out how to generate your own hash database & table for this module. The dbms is `sqlite3` and the database and table structure MUST look like this:
 
 `TABLE hashes(plaintext varchar(255), hash varchar(255), algorithm varchar(255))`
 
@@ -93,12 +93,12 @@ Please check `examples/generate_rt.py` to find out how to generate your own rain
 
 import easycracker
 
-rt = easycracker.RainbowDatabase()
-rt.load("example_rt.db")
+hd = easycracker.HashDatabase()
+hd.load("example_rt.db")
 
-rt.search("5d41402a") # first few characters of MD5 "hello"
+hd.search("5d41402a") # first few characters of MD5 "hello"
 
-if rt.results > 0:
-    for i in range(rt.results):
-        print(rt.get_result(i)) # {"plaintext": "hello", "hash": "5d41402abc4b2a76b9719d911017c592", "algorithm": "MD5"}
+if hd.results > 0:
+    for i in range(hd.results):
+        print(hd.get_result(i)) # {"plaintext": "hello", "hash": "5d41402abc4b2a76b9719d911017c592", "algorithm": "MD5"}
 ```
