@@ -5,7 +5,7 @@ import sys, time
 
 hashes = [
     "5f4dcc3b5aa765d61d8327deb882cf99", # MD5 "password"
-    "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", # SHA1 "hello"
+    "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", # SHA1 -> "hello"
 	"a2217124a034c5c9ab3ad9746e00e40ecbbf1d85e60b9d7b9f549ce3", # SHA224 "goodpassword"
     "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9", # SHA256 "admin123" 
     "548568964fb078e3a030da81829aa18e88f93339bd1f480fc8fa795bb6bb95b87e9661eebea26e72163063d0bda11640", # SHA384 "dragon"
