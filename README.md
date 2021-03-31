@@ -94,7 +94,7 @@ Please check `examples/generate_db.py` to find out how to generate your own hash
 import easycracker
 
 hd = easycracker.HashDatabase()
-hd.load("example_db.db")
+hd.load("hashes.db")
 
 hd.search("5d41402a") # first few characters of MD5 "hello"
 
