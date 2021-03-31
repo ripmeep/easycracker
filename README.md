@@ -85,7 +85,7 @@ else:
 
 # hash database attack (still in works: generation is buggy)
 
-Please check `examples/generate_rt.py` to find out how to generate your own hash database & table for this module. The dbms is `sqlite3` and the database and table structure MUST look like this:
+Please check `examples/generate_db.py` to find out how to generate your own hash database & table for this module. The dbms is `sqlite3` and the database and table structure MUST look like this:
 
 `TABLE hashes(plaintext varchar(255), hash varchar(255), algorithm varchar(255))`
 
